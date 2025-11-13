@@ -4,7 +4,7 @@ import uuid
 import pika
 import json
 from datetime import datetime
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Response, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from contextlib import asynccontextmanager
@@ -114,6 +114,7 @@ class DLRWebhookPayload(BaseModel):
     )
     numParts: int
     partNum: int
+
 
 def publish_to_pdf_queue(db_message_id: int):
     """
@@ -239,6 +240,46 @@ async def receive_sms(
     summary="Recibe Reportes de Entrega (DLR)",
     tags=["Webhooks"],
 )
+async def debug_dlr_receiver(request: Request):
+    """
+    Este endpoint es solo para depuración.
+    Captura y registra la solicitud completa del proveedor de DLR.
+    """
+    print("\n" + "="*50)
+    print("===== INICIO DE LA SOLICITUD DE DEBUG DLR =====")
+    print("="*50)
+
+    # 1. Imprimir las cabeceras (Headers)
+    # La cabecera 'content-type' es la más importante aquí.
+    print("\n[+] CABECERAS RECIBIDAS:")
+    for name, value in request.headers.items():
+        print(f"  {name}: {value}")
+
+    # 2. Imprimir el cuerpo crudo (Raw Body)
+    # Esto nos muestra exactamente los bytes que envió el proveedor.
+    body = await request.body()
+    print("\n[+] CUERPO CRUDO (RAW BODY):")
+    # Lo decodificamos como texto para que sea legible
+    print(f"  {body.decode('utf-8', errors='ignore')}")
+
+    # 3. Intentar procesarlo como Formulario para confirmar
+    print("\n[+] INTENTO DE PARSEO COMO FORMULARIO:")
+    try:
+        form_data = await request.form()
+        if form_data:
+            print(f"  ÉXITO. Datos del formulario: {dict(form_data)}")
+        else:
+            print("  El cuerpo estaba vacío o no era un formulario válido.")
+    except Exception:
+        print("  FALLO. No se pudo procesar como application/x-www-form-urlencoded.")
+
+    print("\n" + "="*50)
+    print("====== FIN DE LA SOLICITUD DE DEBUG DLR ======")
+    print("="*50 + "\n")
+    
+    # Devolvemos una respuesta 200 OK para que el proveedor no siga reintentando.
+    return Response(status_code=status.HTTP_200_OK)
+
 def receive_dlr_webhook(
     payload: DLRWebhookPayload, db: Session = Depends(get_db)
 ):
