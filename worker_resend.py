@@ -121,7 +121,7 @@ class StandaloneSmsEsClient:
 
                 if response.status_code == 202:
                     logger.info("SMS aceptado por la API. Respuesta: %s", response.text)
-                    return response.json() #{"status": "success", "data": {"msgid": "9856", "numParts": 1}}
+                    return {"status": "success", "data": response.json()} #{"status": "success", "data": {"msgid": "9856", "numParts": 1}}
                 
                 elif response.status_code == 420:
                     error_data = response.json().get("error", {})
