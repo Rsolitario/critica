@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Asegúrate de que este worker pueda acceder a estos archivos.
-from models import SmsIncoming
+from models.clients import SmsIncoming
 
 # --- Configuración de Logs ---
 from setupLog import setup_logging
@@ -34,7 +34,7 @@ SMS_API_CONFIG = {
     "username": os.getenv("USERNAME_SMS_API"),  # Reemplazar
     "password": os.getenv("PASSWORD_SMS_API"),  # Reemplazar
     "dlr_mask": 19,
-    "dlr_url": None,  # El worker no expone un webhook, así que se deja en None
+    "dlr_url": os.getenv("DLR_URL") + "/sms_es_connector/webhook/dlr",
     "dcs": "gsm",
     "use_flash": False,
     "use_validate_period": True,
@@ -61,7 +61,7 @@ class StandaloneSmsEsClient:
         self.username = config.get("username")
         self.password = config.get("password")
         self.dlr_mask = config.get("dlr_mask", 19)
-        self.dlr_url = config.get("dlr_url") # No se usa en este worker.
+        self.dlr_url = config.get("dlr_url")
         self.dcs = config.get("dcs", "gsm")
         self.use_flash = config.get("use_flash", False)
         self.use_validate_period = config.get("use_validate_period", True)
@@ -119,9 +119,9 @@ class StandaloneSmsEsClient:
                     timeout=20,
                 )
 
-                if True: #response.status_code == 202:
+                if response.status_code == 202:
                     logger.info("SMS aceptado por la API. Respuesta: %s", response.text)
-                    return {"status": "success", "data": {"msgid": "9856", "numParts": 1}}  #response.json()}
+                    return response.json() #{"status": "success", "data": {"msgid": "9856", "numParts": 1}}
                 
                 elif response.status_code == 420:
                     error_data = response.json().get("error", {})
@@ -236,16 +236,16 @@ def callback(ch, method, properties, body):
             logger.info(
                 f"El mensaje '{db_message_id}' fue aceptado por la API para su entrega"
             )
-            sms.status = "sent"
+            sms.status = "SENDING"
             sms.provider_id = response_data.get("msgid")
             sms.num_parts = response_data.get("numParts")
             db.commit()
             logger.info(
-                f"Estado del mensaje '{db_message_id}' actualizado 'sent' en la BBDD."
+                f"Estado del mensaje '{db_message_id}' actualizado 'SENDING' en la BBDD."
             )
 
             # 3. Encolar nueva tarea en "Certificación_PDF"
-            publish_to_pdf_queue(db_message_id=sms.message_id)
+            #publish_to_pdf_queue(db_message_id=sms.message_id)
 
             # Confirmar que el mensaje fue procesado exitosamente
             ch.basic_ack(delivery_tag=method.delivery_tag)

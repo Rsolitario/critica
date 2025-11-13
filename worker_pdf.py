@@ -8,14 +8,16 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.units import inch
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch, cm
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import Paragraph
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.colors import HexColor
 
 # --- Nuevas importaciones para el sellado de tiempo ---
 from pyhanko.pdf_utils.writer import PdfFileWriter
 from pyhanko.pdf_utils.reader import PdfFileReader
-from pyhanko.sign import signers, PdfSignatureMetadata
+from pyhanko.sign import signers, PdfSignatureMetadata, fields
 from pyhanko.sign.timestamps import HTTPTimeStamper
 from pyhanko.pdf_utils.writer import PdfFileWriter
 from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
@@ -25,9 +27,11 @@ from pyhanko.sign.fields import (
     VisibleSigSettings,
 )
 
+from dotenv import load_dotenv
+
 # Importaciones de la configuración de la base de datos y modelos
 from database import get_db
-from models import SmsIncoming
+from models.clients import SmsIncoming
 
 # --- Configuración de Logs ---
 from setupLog import setup_logging
@@ -37,6 +41,23 @@ from productorRabbitmq import (
     RABBITMQ_HOST,
 )
 
+load_dotenv()
+# Configuración de TSA con autenticación si es necesario
+tsa_username_firmaprofesional = os.getenv("TSA_USERNAME_FIRMAPROFESIONAL")
+tsa_password_firmaprofesional = os.getenv("TSA_PASSWORD_FIRMAPROFESIONAL")
+
+# --- Configuración para pdf diseño personalizado ---
+LOGO_G729 = os.getenv("LOGO_G729")
+LOGO_SMS_ES = os.getenv("LOGO_SMS_ES")
+LOGO_CNMC = os.getenv("LOGO_CNMC")
+LOGO_FIRMAPROFESIONAL = os.getenv("LOGO_FIRMAPROFESIONAL")
+# Datos estáticos de la empresa
+COMPANY_NAME = os.getenv("COMPANY_NAME")
+COMPANY_WEBSITE = os.getenv("COMPANY_WEBSITE")
+COMPANY_CIF = os.getenv("COMPANY_CIF")
+COMPANY_ADDRESS = os.getenv("COMPANY_ADDRESS")
+
+# --- Configuración de RabbitMQ ---
 CERTIFICACION_PDF_QUEUE = "Certificacion_PDF"
 DISTRIBUCION_PDF_QUEUE = "Distribucion_PDF"
 PDF_OUTPUT_DIR = "certificados/tmp"  # Directorio para guardar los PDFs
@@ -47,12 +68,22 @@ LOGO_FILE = "logo.png"  # Asegúrate de que este archivo exista
 # --- Configuración del Certificado Digital ---
 # Se asume un certificado en formato PKCS#12 (.p12 o .pfx)
 PKCS12_PATH = (
-    "paquete.p12"  # ¡IMPORTANTE! Coloca aquí la ruta a tu certificado
+    os.getenv("CERT_DIGITAL_PATH")  # ¡IMPORTANTE! Coloca aquí la ruta a tu certificado
 )
-PKCS12_PASSPHRASE = "1234"  # ¡IMPORTANTE! La contraseña de tu certificado
+PKCS12_PASSPHRASE = os.getenv("CERT_DIGITAL_PASS")  # ¡IMPORTANTE! La contraseña de tu certificado
 
 # URL de la autoridad de sellado de tiempo (TSA)
-TSA_URL = "http://timestamp.digicert.com"
+TSA_WHITE = ["http://timestamp.digicert.com", "http://tsa.firmaprofesional.com"]
+TSA_URL = os.getenv("TSA_URL", "http://timestamp.digicert.com")
+# verificación de TSA con autenticación
+if TSA_URL not in TSA_WHITE  and (
+    tsa_username_firmaprofesional is None
+    or tsa_password_firmaprofesional is None
+):
+    raise ValueError(
+        f"La TSA configurada ({TSA_URL}) requiere un usuario y contraseña. "
+        "Por favor, defina TSA_USERNAME_FIRMAPROFESIONAL y TSA_PASSWORD_FIRMAPROFESIONAL en su archivo .env"
+    )
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -166,14 +197,238 @@ def create_certification_pdf(sms_data: SmsIncoming):
         )
         raise
 
+def create_certification_pdf_custom(sms_data: SmsIncoming):
+    """
+    Genera un PDF de certificación con un diseño específico para sms
+    """
+    # Formateo de datos que usaremos en el PDF
+    now = datetime.utcnow()
+    # Formato de fecha dd/mm/yyyy - HH:MM (Timezone)
+    fecha_envio_str = sms_data.timestamp_received.strftime(
+        "%d/%m/%Y - %H:%M (GMT+1)"
+    )
+    fecha_emision_str = now.strftime("%d/%m/%Y")
+    # Creando identificadores únicos basados en el message_id
+    identificador_certificado = (
+        f"S-{now.strftime('%Y%m%d')}-{sms_data.message_id[:6]}"
+    )
+    codigo_validacion = (
+        f"LOG-{now.strftime('%Y%m%d')}-{sms_data.message_id[6:16]}"
+    )
 
-def sign_and_store_pdf(temp_pdf_path: str, sms_id: int) -> str:
+    file_path = os.path.join(
+        PDF_OUTPUT_DIR, f"certificado_{sms_data.message_id}.pdf"
+    )
+    logger.info(
+        f"Creando PDF para el mensaje id '{sms_data.message_id}' en: {file_path}"
+    )
+
+    try:
+        c = canvas.Canvas(file_path, pagesize=letter)
+        width, height = letter
+
+        # --- Definir Estilos de Párrafo ---
+        styles = getSampleStyleSheet()
+        style_body = ParagraphStyle(
+            name="Body",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=10.5,
+            leading=16,
+            alignment=TA_LEFT,
+        )
+        style_title = ParagraphStyle(
+            name="Title",
+            parent=styles["h1"],
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            alignment=TA_CENTER,
+            textColor=HexColor("#333333"),
+        )
+        style_subtitle = ParagraphStyle(
+            name="SubTitle", parent=style_title, fontSize=11, spaceAfter=12
+        )
+
+        # --- 1. Cabecera (Logos y Títulos) ---
+        # Logo izquierdo
+        if os.path.exists(LOGO_G729):
+            c.drawImage(
+                LOGO_G729,
+                1 * inch,
+                height - 1.2 * inch,
+                width=1.5 * inch,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+        # Logo derecho
+        if os.path.exists(LOGO_SMS_ES):
+            c.drawImage(
+                LOGO_SMS_ES,
+                width - 2.5 * inch,
+                height - 1.2 * inch,
+                width=1.5 * inch,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+
+        # Títulos
+        p_title = Paragraph(
+            "CERTIFICADO DE COMUNICACIÓN ELECTRÓNICA", style_title
+        )
+        p_title.wrapOn(c, width - 2 * inch, height)
+        p_title.drawOn(c, 1 * inch, height - 1.8 * inch)
+
+        p_subtitle = Paragraph("SMS CERTIFICADO", style_subtitle)
+        p_subtitle.wrapOn(c, width - 2 * inch, height)
+        p_subtitle.drawOn(c, 1 * inch, height - 2.0 * inch)
+
+        # Línea horizontal
+        c.setStrokeColorRGB(0.8, 0.8, 0.8)
+        c.line(
+            1 * inch,
+            height - 2.3 * inch,
+            width - 1 * inch,
+            height - 2.3 * inch,
+        )
+
+        # --- 2. Texto Lateral Vertical ---
+        c.saveState()
+        c.translate(0.5 * inch, 3 * inch)  # Mover el origen
+        c.rotate(90)  # Rotar 90 grados
+        c.setFont("Helvetica", 8)
+        c.setFillColorRGB(0.5, 0.5, 0.5)
+        c.drawString(
+            0, 0, f"{COMPANY_NAME} C.I.F: {COMPANY_CIF} {COMPANY_ADDRESS}"
+        )
+        c.restoreState()
+
+        # --- 3. Cuerpo del Documento (usando una función para manejar la posición Y) ---
+        y_pos = height - 2.8 * inch
+        margin_left = 1 * inch
+        content_width = width - 2 * margin_left
+
+        def draw_flowable(flowable, y):
+            """Dibuja un objeto Flowable (como un Paragraph) y retorna la nueva posición Y."""
+            w, h = flowable.wrapOn(c, content_width, height)
+            flowable.drawOn(c, margin_left, y - h)
+            return y - h - 0.25 * inch  # Espacio después del párrafo
+
+        # Contenido del certificado
+        p = Paragraph(
+            f"<b>Identificador del certificado:</b> {identificador_certificado}",
+            style_body,
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        p = Paragraph(
+            f"El operador de comunicaciones electrónicas {COMPANY_NAME} ({COMPANY_WEBSITE}), "
+            "en calidad de tercero de confianza, certifica que los datos consignados en el "
+            "presente documento son los que constan en sus registros de comunicaciones electrónicas.",
+            style_body,
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        # Usamos espacios adicionales para separar
+        y_pos -= 0.1 * inch
+
+        p = Paragraph(f"<b>Remitente:</b> sms.es", style_body)
+        y_pos = draw_flowable(p, y_pos)
+
+        destinatario = getattr(sms_data, "receiver", "N/A")
+        p = Paragraph(f"<b>Destinatario:</b> {destinatario}", style_body)
+        y_pos = draw_flowable(p, y_pos)
+
+        p = Paragraph(
+            f'<b>Contenido del mensaje:</b> "{sms_data.content}"', style_body
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        p = Paragraph(
+            f"<b>Fecha y hora de envío:</b> {fecha_envio_str}", style_body
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        # La fecha de entrega puede ser la misma que la de envío en este contexto
+        p = Paragraph(
+            f"<b>Fecha y hora de entrega:</b> {fecha_envio_str}", style_body
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        y_pos -= 0.1 * inch
+
+        p = Paragraph(
+            "<b>Sello de tiempo emitido por Firmaprofesional S.A.</b>",
+            style_body,
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        p = Paragraph(
+            f"<b>Código de validación:</b> {codigo_validacion}", style_body
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        y_pos -= 0.1 * inch
+
+        p = Paragraph(
+            f"La autenticidad de este documento puede verificarse en https://{COMPANY_WEBSITE}/certified-sms/ "
+            "introduciendo el código de validación indicado.",
+            style_body,
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        y_pos -= 0.1 * inch
+
+        p = Paragraph(
+            f"<b>Emitido por:</b> {COMPANY_NAME} ({COMPANY_WEBSITE}) – Operador de comunicaciones electrónicas y tercero de confianza digital.",
+            style_body,
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        p = Paragraph(
+            f"<b>Fecha de emisión:</b> {fecha_emision_str}", style_body
+        )
+        y_pos = draw_flowable(p, y_pos)
+
+        # --- 4. Pie de Página (Logos) ---
+        footer_y = 0.2 * inch
+        if os.path.exists(LOGO_CNMC):
+            c.drawImage(
+                LOGO_CNMC,
+                margin_left,
+                footer_y,
+                height=0.5 * inch,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+        if os.path.exists(LOGO_FIRMAPROFESIONAL):
+            c.drawImage(
+                LOGO_FIRMAPROFESIONAL,
+                width - margin_left - (2.5 * inch),
+                footer_y,
+                height=0.5 * inch,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+
+        # --- Finalizar y Guardar ---
+        c.save()
+        logger.info(f"PDF guardado exitosamente en '{file_path}'.")
+        return file_path
+
+    except Exception as e:
+        logger.error(
+            f"No se pudo generar el PDF para el mensaje id '{sms_data.message_id}': {e}"
+        )
+        raise
+
+
+def sign_and_store_pdf(temp_pdf_path: str, sms_id: str) -> str:
     """
     Aplica una firma digital PAdES-B-LT y guarda el PDF en la ubicación final.
     """
     logger.info(f"Iniciando firma digital para '{temp_pdf_path}'.")
 
-    # 1. Cargar el certificado y la clave privada del firmante
+    # 1. Cargar el certificado
     try:
         signer = signers.SimpleSigner.load_pkcs12(
             pfx_file=PKCS12_PATH,
@@ -183,49 +438,59 @@ def sign_and_store_pdf(temp_pdf_path: str, sms_id: int) -> str:
                 else None
             ),
         )
-    except FileNotFoundError:
-        logger.error(
-            f"¡ERROR CRÍTICO! No se encontró el archivo del certificado en: {PKCS12_PATH}"
-        )
-        raise
     except Exception as e:
-        logger.error(
-            f"¡ERROR CRÍTICO! No se pudo cargar el certificado. Revisa la ruta y la contraseña. Error: {e}"
-        )
+        logger.error(f"¡ERROR CRÍTICO! No se pudo cargar el certificado: {e}")
         raise
 
-    # 2. Preparar el firmante PAdES con el sello de tiempo (PAdES-B-LT)
-    pdf_signer = signers.PdfSigner(
-        PdfSignatureMetadata(
-            field_name="FirmaEmpresa",
-            reason="Certificación de entrega de comunicación",
-            location="Servidor Central",
-        ),
-        signer=signer,
-        # Incrusta el sello de tiempo en la firma
-        timestamper=HTTPTimeStamper(url=TSA_URL),
+    # 2. Definir los metadatos de la firma que usaremos
+    meta = signers.PdfSignatureMetadata(
+        field_name=os.getenv("CERT_NAME", "FirmaEmpresa"),
+        reason=os.getenv("CERT_REASON", "Certificación de entrega de comunicación"),
+        location=os.getenv("CERT_LOCATION", "Servidor Central"),
     )
 
-    # 3. Aplicar la firma al documento
+    # 3. Preparar el archivo de salida
     final_pdf_path = os.path.join(
         PDF_FINAL_DIR, f"certificado_final_{sms_id}.pdf"
     )
-    with open(temp_pdf_path, "rb+") as doc_in:
-        writer = IncrementalPdfFileWriter(doc_in)
 
-        sig_field_spec = SigFieldSpec(
-            "FirmaEmpresa",
-            box=(50, 50, 200, 100),
-            visible_sig_settings=VisibleSigSettings(rotate_with_page=True),
+    with open(temp_pdf_path, "rb") as doc_in, open(
+        final_pdf_path, "wb"
+    ) as doc_out:
+        # Abrimos el PDF original y lo preparamos para una modificación incremental
+        w = IncrementalPdfFileWriter(doc_in)
+
+        # Añadimos un campo de firma vacío, que es necesario para que la firma sea visible
+        fields.append_signature_field(
+            w,
+            sig_field_spec=fields.SigFieldSpec(
+                sig_field_name="FirmaEmpresa",
+                box=(
+                    72.25,
+                    50,
+                    250,
+                    100,
+                ),  # (x1, y1, x2, y2) desde la esquina inferior izquierda
+            ),
         )
-        append_signature_field(writer, sig_field_spec)
-        writer.write_in_place()
 
-        doc_in.seek(0)
+        # Creamos el objeto firmante, combinando los metadatos, el certificado y el sello de tiempo
+        timestamper = (
+            HTTPTimeStamper(url=TSA_URL)
+            if TSA_URL == "http://timestamp.digicert.com" or TSA_URL == "http://tsa.firmaprofesional.com"
+            else HTTPTimeStamper(
+                url=TSA_URL,
+                auth=(
+                    tsa_username_firmaprofesional,
+                    tsa_password_firmaprofesional,
+                ),
+            )
+        )
 
-        with open(final_pdf_path, "wb") as doc_out:
-            # PyHanko se encarga de todo el proceso de firma y sellado
-            pdf_signer.sign_pdf(writer, doc_out)
+        pdf_signer = signers.PdfSigner(meta, signer, timestamper=timestamper)
+
+        # Finalmente, firmamos el PDF modificado (w) y escribimos el resultado en el archivo de salida (doc_out)
+        pdf_signer.sign_pdf(w, output=doc_out)
 
     logger.info(
         f"PDF firmado y sellado. Guardado permanentemente en: {final_pdf_path}"
@@ -261,7 +526,7 @@ def callback(ch, method, properties, body):
             db.query(SmsIncoming)
             .filter(
                 SmsIncoming.message_id == db_message_id,
-                SmsIncoming.status == "sent",
+                SmsIncoming.status == "DELIVERED",
             )
             .first()
         )
@@ -273,7 +538,7 @@ def callback(ch, method, properties, body):
             return
 
         # Paso 1: Generar el PDF base
-        temp_pdf_path = create_certification_pdf(sms)
+        temp_pdf_path = create_certification_pdf_custom(sms)
 
         # Paso 2: firmar el pdf con sello de tiempo integrado
         stamped_pdf_path = sign_and_store_pdf(temp_pdf_path, sms.message_id)
@@ -317,7 +582,7 @@ def callback(ch, method, properties, body):
     finally:
         # Limpieza: eliminar el archivo PDF temporal después del proceso
         if temp_pdf_path and os.path.exists(temp_pdf_path):
-            # os.remove(temp_pdf_path)
+            os.remove(temp_pdf_path)
             logger.info(f"Archivo temporal '{temp_pdf_path}' eliminado.")
         db.close()
         if connection_pub and connection_pub.is_open:

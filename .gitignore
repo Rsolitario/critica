@@ -3,3 +3,4 @@ __pycache__
 .env
 *.p12
 *.key
+*.db

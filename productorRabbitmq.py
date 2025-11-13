@@ -1,16 +1,18 @@
+import os
 import pika
 import logging
 import json
 
 from fastapi import HTTPException
-
 from setupLog import setup_logging
+from dotenv import load_dotenv
 
+load_dotenv()
 setup_logging()
 logger = logging.getLogger(__name__)
 
 # --- Configuración de RabbitMQ ---
-RABBITMQ_HOST = "localhost"
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 SMS_RESEND_QUEUE = "sms_resend_queue"
 
 # --- Variables globales para la Conexión de RabbitMQ ---
@@ -55,6 +57,9 @@ def publish_to_resend_queue(
     """
     Publica un mensaje en la cola SMS_Resend.
     """
+    # connection embebida 
+    connect_to_rabbitmq()
+
     if not rabbitmq_channel or not rabbitmq_channel.is_open:
         logger.error(
             "No se puede publicar el mensaje: el canal de RabbitMQ no está disponible."
@@ -92,3 +97,5 @@ def publish_to_resend_queue(
             status_code=500,
             detail="Error al encolar la tarea de procesamiento.",
         )
+    finally:
+        close_rabbitmq_connection()

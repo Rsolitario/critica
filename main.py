@@ -1,5 +1,5 @@
 from database import create_db_and_tables, get_db
-from models import Cliente, SmsIncoming
+from models.clients import Cliente, SmsIncoming
 from sqlalchemy.orm import Session
 from setupLog import setup_logging, logging
 setup_logging()
