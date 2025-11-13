@@ -331,7 +331,8 @@ def create_certification_pdf_custom(sms_data: SmsIncoming):
         # Usamos espacios adicionales para separar
         y_pos -= 0.1 * inch
 
-        p = Paragraph(f"<b>Remitente:</b> sms.es", style_body)
+        remitente = getattr(sms_data, "sender", "N/A")
+        p = Paragraph(f"<b>Remitente:</b> {remitente}", style_body)
         y_pos = draw_flowable(p, y_pos)
 
         destinatario = getattr(sms_data, "receiver", "N/A")
