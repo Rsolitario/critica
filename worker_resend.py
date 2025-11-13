@@ -237,7 +237,7 @@ def callback(ch, method, properties, body):
                 f"El mensaje '{db_message_id}' fue aceptado por la API para su entrega"
             )
             sms.status = "SENDING"
-            sms.provider_id = response_data.get("msgid")
+            sms.provider_id = response_data.get("msgId")
             sms.num_parts = response_data.get("numParts")
             db.commit()
             logger.info(
