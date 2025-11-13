@@ -14,8 +14,10 @@ from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from email.header import Header
 import ftplib
+
 try:
-    import pysftp
+    import paramiko
+
     SFTP_AVAILABLE = True
 except ImportError:
     SFTP_AVAILABLE = False
@@ -25,6 +27,7 @@ load_dotenv()  # <-- 2. LLAMAR A LA FUNCIÓN PARA CARGAR EL ARCHIVO
 
 # --- Configuración de Logs ---
 from setupLog import setup_logging
+
 setup_logging()
 logger = logging.getLogger(__name__)
 
@@ -48,10 +51,13 @@ REMOTE_PORT = int(os.getenv("REMOTE_PORT", 22))
 
 # --- Funciones de Distribución (Sin cambios en su lógica interna) ---
 
+
 def send_email_with_attachment(recipient_email: str, file_path: str):
     # (El código de esta función es idéntico al anterior)
     if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]):
-        logger.warning("Variables de entorno de SMTP no configuradas. Saltando envío de correo.")
+        logger.warning(
+            "Variables de entorno de SMTP no configuradas. Saltando envío de correo."
+        )
         return
     logger.info(f"Preparando correo para {recipient_email}...")
     try:
@@ -59,10 +65,20 @@ def send_email_with_attachment(recipient_email: str, file_path: str):
         msg["From"] = SMTP_SENDER
         msg["To"] = recipient_email
         msg["Subject"] = Header("Certificado de Entrega de SMS", "utf-8")
-        msg.attach(MIMEText("Adjunto encontrará el certificado de entrega de su comunicación reciente.", "plain", "utf-8"))
+        msg.attach(
+            MIMEText(
+                "Adjunto encontrará el certificado de entrega de su comunicación reciente.",
+                "plain",
+                "utf-8",
+            )
+        )
         with open(file_path, "rb") as attachment:
-            part = MIMEApplication(attachment.read(), Name=os.path.basename(file_path))
-        part['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
+            part = MIMEApplication(
+                attachment.read(), Name=os.path.basename(file_path)
+            )
+        part["Content-Disposition"] = (
+            f'attachment; filename="{os.path.basename(file_path)}"'
+        )
         msg.attach(part)
         server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
         server.starttls()
@@ -74,52 +90,89 @@ def send_email_with_attachment(recipient_email: str, file_path: str):
         logger.error(f"Fallo al enviar correo a {recipient_email}: {e}")
         raise
 
+
 def upload_file_to_remote(local_path: str, remote_dir: str):
     # (El código de esta función es idéntico al anterior)
     if not all([REMOTE_HOST, REMOTE_USER, REMOTE_PASS]):
-        logger.warning("Variables de entorno de almacenamiento remoto no configuradas. Saltando subida de archivo.")
+        logger.warning(
+            "Variables de entorno de almacenamiento remoto no configuradas. Saltando subida de archivo."
+        )
         return
     if REMOTE_STORAGE_TYPE == "SFTP":
         if not SFTP_AVAILABLE:
-            logger.error("Se configuró SFTP pero 'pysftp' no está instalado.")
-            raise ImportError("pysftp no está instalado.")
+            logger.error(
+                "Se configuró SFTP pero 'paramiko' no está instalado."
+            )
+            raise ImportError("paramiko no está instalado.")
         upload_sftp(local_path, remote_dir)
     elif REMOTE_STORAGE_TYPE == "FTP":
         upload_ftp(local_path, remote_dir)
     else:
-        logger.error(f"Tipo de almacenamiento '{REMOTE_STORAGE_TYPE}' no soportado.")
+        logger.error(
+            f"Tipo de almacenamiento '{REMOTE_STORAGE_TYPE}' no soportado."
+        )
+
 
 def upload_ftp(local_path, remote_dir):
     # (El código de esta función es idéntico al anterior)
     logger.info(f"Iniciando subida FTP a {REMOTE_HOST}...")
     try:
         with ftplib.FTP(REMOTE_HOST, REMOTE_USER, REMOTE_PASS) as ftp:
-            for part in remote_dir.strip('/').split('/'):
-                try: ftp.cwd(part)
-                except ftplib.error_perm: ftp.mkd(part); ftp.cwd(part)
-            with open(local_path, 'rb') as f:
-                ftp.storbinary(f'STOR {os.path.basename(local_path)}', f)
+            for part in remote_dir.strip("/").split("/"):
+                try:
+                    ftp.cwd(part)
+                except ftplib.error_perm:
+                    ftp.mkd(part)
+                    ftp.cwd(part)
+            with open(local_path, "rb") as f:
+                ftp.storbinary(f"STOR {os.path.basename(local_path)}", f)
         logger.info("Archivo subido exitosamente vía FTP.")
     except Exception as e:
         logger.error(f"Fallo en la subida FTP: {e}")
         raise
 
+
 def upload_sftp(local_path, remote_dir):
-    # (El código de esta función es idéntico al anterior)
     logger.info(f"Iniciando subida SFTP a {REMOTE_HOST}:{REMOTE_PORT}...")
-    cnopts = pysftp.CnOpts()
-    cnopts.hostkeys = None # ¡No usar en producción!
     try:
-        with pysftp.Connection(host=REMOTE_HOST, username=REMOTE_USER, password=REMOTE_PASS, port=REMOTE_PORT, cnopts=cnopts) as sftp:
-            sftp.makedirs(remote_dir)
-            remote_path = os.path.join(remote_dir, os.path.basename(local_path))
-            sftp.put(local_path, remote_path)
+        # Usamos 'with' para garantizar que la conexión se cierre
+        with paramiko.SSHClient() as client:
+            # Política para aceptar claves de host (equivalente a cnopts.hostkeys = None)
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            # Conectar al servidor
+            client.connect(
+                hostname=REMOTE_HOST,
+                port=REMOTE_PORT,
+                username=REMOTE_USER,
+                password=REMOTE_PASS,
+            )
+
+            # Abrir una sesión SFTP
+            with client.open_sftp() as sftp:
+                # Recrear la funcionalidad de 'makedirs'
+                # Paramiko no tiene un 'makedirs' directo, así que lo hacemos manualmente
+                current_dir = ""
+                for part in remote_dir.strip("/").split("/"):
+                    current_dir = f"{current_dir}/{part}"
+                    try:
+                        sftp.mkdir(current_dir)
+                    except IOError:
+                        # Ignoramos el error si el directorio ya existe
+                        pass
+
+                # Construir la ruta remota y subir el archivo
+                remote_path = f"{remote_dir}/{os.path.basename(local_path)}"
+                sftp.put(local_path, remote_path)
+
         logger.info("Archivo subido exitosamente vía SFTP.")
     except Exception as e:
         logger.error(f"Fallo en la subida SFTP: {e}")
         raise
 
+
 # --- Función Principal del Worker y `main` (Sin cambios en su lógica interna) ---
+
 
 def callback(ch, method, properties, body):
     # (El código de esta función es idéntico al anterior)
@@ -142,22 +195,33 @@ def callback(ch, method, properties, body):
         upload_file_to_remote(final_pdf_path, remote_dir)
         logger.info(f"Distribución para SMS id '{sms_id}' completada.")
     except Exception as delivery_error:
-        logger.critical(f"FALLO DE ENTREGA para certificado '{final_pdf_path}': {delivery_error}")
+        logger.critical(
+            f"FALLO DE ENTREGA para certificado '{final_pdf_path}': {delivery_error}"
+        )
     finally:
         ch.basic_ack(delivery_tag=method.delivery_tag)
+
 
 def main():
     while True:
         try:
-            connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
+            connection = pika.BlockingConnection(
+                pika.ConnectionParameters(host=RABBITMQ_HOST)
+            )
             channel = connection.channel()
             channel.queue_declare(queue=DISTRIBUCION_PDF_QUEUE, durable=True)
             channel.basic_qos(prefetch_count=1)
-            channel.basic_consume(queue=DISTRIBUCION_PDF_QUEUE, on_message_callback=callback)
-            logger.info(f"[*] Worker de Distribución esperando mensajes en '{DISTRIBUCION_PDF_QUEUE}'.")
+            channel.basic_consume(
+                queue=DISTRIBUCION_PDF_QUEUE, on_message_callback=callback
+            )
+            logger.info(
+                f"[*] Worker de Distribución esperando mensajes en '{DISTRIBUCION_PDF_QUEUE}'."
+            )
             channel.start_consuming()
         except pika.exceptions.AMQPConnectionError as e:
-            logger.error(f"Error de conexión con RabbitMQ: {e}. Reintentando en 5 segundos...")
+            logger.error(
+                f"Error de conexión con RabbitMQ: {e}. Reintentando en 5 segundos..."
+            )
             time.sleep(5)
         except KeyboardInterrupt:
             logger.info("Deteniendo el worker.")
@@ -165,6 +229,7 @@ def main():
         except Exception as e:
             logger.critical(f"Error inesperado: {e}")
             break
+
 
 if __name__ == "__main__":
     main()
