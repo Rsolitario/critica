@@ -112,6 +112,7 @@ class StandaloneSmsEsClient:
             attempts += 1
             try:
                 headers = {"Content-Type": "application/json; charset=utf-8"}
+                print(payload)
                 response = requests.post(
                     self.api_url,
                     data=json.dumps(payload).encode("utf-8"),
@@ -225,7 +226,6 @@ def callback(ch, method, properties, body):
             "db_message_id": sms.message_id,
         }
         result = sms_client.send_sms(message_data)
-        print(result)
         response_data = result.get("data", {}) \
             if result["status"] == "success" else {}
         
