@@ -12,6 +12,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
+from email.header import Header
 import ftplib
 try:
     import pysftp
@@ -57,8 +58,8 @@ def send_email_with_attachment(recipient_email: str, file_path: str):
         msg = MIMEMultipart()
         msg["From"] = SMTP_SENDER
         msg["To"] = recipient_email
-        msg["Subject"] = "Certificado de Entrega de SMS"
-        msg.attach(MIMEText("Adjunto encontrará el certificado de entrega de su comunicación reciente.", "plain"))
+        msg["Subject"] = Header("Certificado de Entrega de SMS", "utf-8")
+        msg.attach(MIMEText("Adjunto encontrará el certificado de entrega de su comunicación reciente.", "plain", "utf-8"))
         with open(file_path, "rb") as attachment:
             part = MIMEApplication(attachment.read(), Name=os.path.basename(file_path))
         part['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
