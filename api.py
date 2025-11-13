@@ -337,12 +337,12 @@ def add_example_client(db: Session):
         )
 
 
-if __name__ == "__main__":
+#if __name__ == "__main__":
     # Este bloque es útil para desarrollo y pruebas.
     # No se ejecutará cuando se use uvicorn para iniciar la aplicación.
 
     # Para ejecutar: uvicorn nombre_del_archivo:app --reload
     # Ejemplo: uvicorn main:app --reload
-    import uvicorn
+    #import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=7000)
+    #uvicorn.run(app, host="0.0.0.0", port=7000)
