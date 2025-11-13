@@ -1,6 +1,3 @@
 __pycache__
 *.crt
-.env
-*.p12
-*.key
 *.db
