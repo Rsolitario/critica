@@ -230,11 +230,22 @@ async def receive_sms(
             f"FALLO CRITICO: SMS con ID {nuevo_sms.message_id} guardado pero no encolado."
         )
 
-    # 4. Devolver una respuesta HTTP 202 inmediata al proveedor
-    return {
-        "status": "success",
-        "message": "SMS recibido y en cola para procesamiento.",
+    response_data = {
+        'errorCode': 0,
+        'errorDescription': 'Ok',
+        'sms': [[
+            {
+                'errorCode': 0,
+                'id': nuevo_sms.message_id,
+                'originatingAddress': nuevo_sms.sender,
+                'destinationAddress': nuevo_sms.receiver,
+            }
+        ]],
+        'messageCount': 1,
+        'messageParts': 1
     }
+    # 4. Devolver una respuesta
+    return response_data
 
 
 @app.post(
