@@ -166,7 +166,7 @@ async def receive_sms(
     - Registra el mensaje entrante con estado 'pending'.
     - Devuelve una respuesta inmediata para desacoplar el procesamiento posterior.
     """
-    message_id = str(uuid.uuid4().hex)  # Generar un ID único para el mensaje
+    message_id = str(uuid.uuid4())  # Generar un ID único para el mensaje
     logger.info(
         f"Recibido nuevo SMS de '{sender_id}' con message_id: {message_id}"
     )
