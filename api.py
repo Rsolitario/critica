@@ -4,6 +4,7 @@ import uuid
 import pika
 import json
 from datetime import datetime
+import requests
 from fastapi import FastAPI, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -156,6 +157,9 @@ async def receive_sms(
     sender_id: str,
     recipients: str,
     message: str,
+    action: str,
+    sub_account: str,
+    sub_account_pass: str,
     db: Session = Depends(get_db)
     ):
     """
@@ -201,6 +205,9 @@ async def receive_sms(
         status="pending",  # Estado inicial
         email_cliente=cliente.email_cliente,
         ftp_directorio=cliente.ftp_directorio,
+        action=action,
+        sub_account=sub_account,   
+        sub_account_pass=sub_account_pass
     )
 
     try:
@@ -246,6 +253,28 @@ async def receive_sms(
     }
     # 4. Devolver una respuesta
     return response_data
+
+def respond_dlr_success(message_to_update: SmsIncoming , event: str):
+    dlr_params = {
+        'username': message_to_update.sub_account,
+        'password': message_to_update.sub_account_pass,
+        'sender': message_to_update.sender,
+        'destination': message_to_update.receiver,
+        'messageId': message_to_update.message_id,
+        'dateReceived': datetime.now().strftime("%d/%m/%Y %H:%M:%S"), # Se usa un espacio normal
+        'description': event,
+        'deliveryStatus': 2 # Puede ser un número o un string '2'
+    }
+
+    response = requests.get(
+        "http://195.191.165.16:32006/HTTP/api/Vendor/DLRListener"
+        , params=dlr_params
+        , timeout=10
+    )
+    if response.status_code != 200:
+        logger.error(f"Error al enviar la respuesta DLR: {response.status_code} - {response.text}")
+    else:
+        logger.info(f"Respuesta DLR enviada exitosamente para message_id: {message_to_update.message_id}")
 
 
 @app.post(
@@ -294,6 +323,9 @@ def receive_dlr_webhook(
         f"Actualizando estado del mensaje {message_to_update.message_id} de '{message_to_update.status}' a '{payload.event}'"
     )
     message_to_update.status = payload.event
+
+    # DLR al que envia el sms
+    respond_dlr_success(message_to_update, payload.event)
 
     # Guardar los cambios en la base de datos.
     db.commit()

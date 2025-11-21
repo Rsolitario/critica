@@ -43,6 +43,9 @@ class SmsIncoming(Base):
     timestamp_received = Column(DateTime(timezone=True), server_default=func.now(), comment="Fecha y hora de recepción")
     status = Column(String(20), nullable=False, default="pending", index=True, comment="Estado del procesamiento del SMS")
     pdf_path = Column(String(255), nullable=True, comment="Ruta al PDF generado para este SMS")
+    action = Column(String(50), nullable=True, comment="Acción a realizar con el SMS")
+    sub_account = Column(String(100), nullable=True, comment="Subcuenta asociada al SMS")
+    sub_account_pass = Column(String(100), nullable=True, comment="Contraseña de la subcuenta asociada al SMS")
     
     # Estos campos se denormalizan (duplican) para un acceso más rápido,
     # evitando tener que hacer un JOIN a la tabla de clientes cada vez
