@@ -118,7 +118,7 @@ class DLRWebhookPayload(BaseModel):
     )
     numParts: int
     partNum: int
-    
+
 
 def publish_to_pdf_queue(db_message_id: int):
     """
@@ -161,7 +161,7 @@ async def receive_sms(
     sub_account: str,
     sub_account_pass: str,
     db: Session = Depends(get_db)
-    ):
+):
     """
     Endpoint para recibir un SMS de un proveedor externo.
 
@@ -206,7 +206,7 @@ async def receive_sms(
         email_cliente=cliente.email_cliente,
         ftp_directorio=cliente.ftp_directorio,
         action=action,
-        sub_account=sub_account,   
+        sub_account=sub_account,
         sub_account_pass=sub_account_pass
     )
 
@@ -254,27 +254,53 @@ async def receive_sms(
     # 4. Devolver una respuesta
     return response_data
 
-def respond_dlr_success(message_to_update: SmsIncoming , event: str):
+
+def respond_dlr_success(message_to_update: SmsIncoming, event: str):
+    status_dlr_server = {
+        "Delivered": 2,
+        "Expired": 3,
+        "Deleted": 4,
+        "Undeliverd": 5,
+        "Accepted": 6,
+        "Invalid": 7,
+        "Rejected": 8
+    }
+    status_dlr_response = {
+        0: "Ok",
+        1: "Invalid Credentials",
+        3: "Invalid Query String Parameters",
+        10: "Internal Server Error"
+    }
+
     dlr_params = {
         'username': message_to_update.sub_account,
         'password': message_to_update.sub_account_pass,
         'sender': message_to_update.sender,
         'destination': message_to_update.receiver,
         'messageId': message_to_update.message_id,
-        'dateReceived': datetime.now().strftime("%d/%m/%Y %H:%M:%S"), # Se usa un espacio normal
+        # Se usa un espacio normal
+        'dateReceived': datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
         'description': event,
-        'deliveryStatus': 2 # Puede ser un número o un string '2'
+        # Puede ser un número o un string '2'
+        'deliveryStatus': status_dlr_server.get(event.lower().capitalize())
     }
 
     try:
+        # Respuesta actual Error! {"errorCode":1,"errorDescriptio>
         response = requests.get(
-            "http://195.191.165.16:32006/HTTP/api/Vendor/DLRListener"
-            , params=dlr_params
+            "http://195.191.165.16:32006/HTTP/api/Vendor/DLRListener", params=dlr_params
         )
         if response.status_code != 200:
-            logger.error(f"Error al enviar la respuesta DLR: {response.status_code} - {response.text}")
+            logger.error(
+                f"Error al enviar la respuesta DLR: {response.status_code} - {response.text}")
         else:
-            logger.info(f"Respuesta DLR enviada exitosamente para message_id: {message_to_update.message_id} respuesta: {response.text}")
+            json_response = response.json()
+            logger.info(
+                f"Respuesta DLR enviada exitosamente para message_id: {message_to_update.message_id}")
+            if json_response.get("errorCode") == 0:
+                logger.info(f"DLR aceptado por el servidor: {json_response}")
+            else:
+                logger.error(f"DLR rechazado por el servidor: {status_dlr_response.get(json_response.get("erroCode"))} {json_response.get("errorDescription")}")
     except requests.RequestException as e:
         logger.error(f"Excepción al enviar la respuesta DLR: {e}")
         raise
@@ -333,7 +359,7 @@ def receive_dlr_webhook(
     # Guardar los cambios en la base de datos.
     db.commit()
     db.refresh(message_to_update)
-    
+
     if (
         message_to_update.status == "DELIVERED"
         and previous_status != "DELIVERED"
@@ -388,12 +414,12 @@ def add_example_client(db: Session):
         )
 
 
-#if __name__ == "__main__":
+# if __name__ == "__main__":
     # Este bloque es útil para desarrollo y pruebas.
     # No se ejecutará cuando se use uvicorn para iniciar la aplicación.
 
     # Para ejecutar: uvicorn nombre_del_archivo:app --reload
     # Ejemplo: uvicorn main:app --reload
-    #import uvicorn
+    # import uvicorn
 
-    #uvicorn.run(app, host="0.0.0.0", port=7000)
+    # uvicorn.run(app, host="0.0.0.0", port=7000)
