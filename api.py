@@ -287,7 +287,6 @@ def respond_dlr_success(message_to_update: SmsIncoming, event: str):
 
     try:
         # Respuesta actual Error! {"errorCode":1,"errorDescriptio>
-        print(dlr_params)
         response = requests.get(
             "http://195.191.165.16:32006/HTTP/api/Vendor/DLRListener", params=dlr_params
         )
@@ -301,8 +300,8 @@ def respond_dlr_success(message_to_update: SmsIncoming, event: str):
             if json_response.get("errorCode") == 0:
                 logger.info(f"DLR aceptado por el servidor: {json_response}")
             else:
-                logger.error(f"DLR rechazado por el servidor: {status_dlr_response.get(json_response.get("erroCode"))} {json_response.get("errorDescription")}")
-                raise ValueError(f"DLR rechazado por el servidor: {status_dlr_response.get(json_response.get("erroCode"))} {json_response.get("errorDescription")}")
+                logger.error(f"DLR rechazado por el servidor: {status_dlr_response.get(json_response.get("errorCode"))} {json_response.get("errorDescription")}")
+                raise ValueError(f"DLR rechazado por el servidor: {status_dlr_response.get(json_response.get("errorCode"))} {json_response.get("errorDescription")}")
     except requests.RequestException as e:
         logger.error(f"Excepción al enviar la respuesta DLR: {e}")
         raise
