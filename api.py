@@ -266,15 +266,18 @@ def respond_dlr_success(message_to_update: SmsIncoming , event: str):
         'deliveryStatus': 2 # Puede ser un número o un string '2'
     }
 
-    response = requests.get(
-        "http://195.191.165.16:32006/HTTP/api/Vendor/DLRListener"
-        , params=dlr_params
-        , timeout=10
-    )
-    if response.status_code != 200:
-        logger.error(f"Error al enviar la respuesta DLR: {response.status_code} - {response.text}")
-    else:
-        logger.info(f"Respuesta DLR enviada exitosamente para message_id: {message_to_update.message_id}")
+    try:
+        response = requests.get(
+            "http://195.191.165.16:32006/HTTP/api/Vendor/DLRListener"
+            , params=dlr_params
+        )
+        if response.status_code != 200:
+            logger.error(f"Error al enviar la respuesta DLR: {response.status_code} - {response.text}")
+        else:
+            logger.info(f"Respuesta DLR enviada exitosamente para message_id: {message_to_update.message_id} respuesta: {response.text}")
+    except requests.RequestException as e:
+        logger.error(f"Excepción al enviar la respuesta DLR: {e}")
+        raise
 
 
 @app.post(
