@@ -287,6 +287,7 @@ def respond_dlr_success(message_to_update: SmsIncoming, event: str):
 
     try:
         # Respuesta actual Error! {"errorCode":1,"errorDescriptio>
+        print(dlr_params)
         response = requests.get(
             "http://195.191.165.16:32006/HTTP/api/Vendor/DLRListener", params=dlr_params
         )
