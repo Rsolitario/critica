@@ -265,18 +265,16 @@ def respond_dlr_success(message_to_update: SmsIncoming , event: str):
         'description': event,
         'deliveryStatus': 2 # Puede ser un número o un string '2'
     }
-    try:
-        response = requests.get(
-            "http://195.191.165.16:32006/HTTP/api/Vendor/DLRListener"
-            , params=dlr_params
-        )
-        if response.status_code != 200:
-            logger.error(f"Error al enviar la respuesta DLR: {response.status_code} - {response.text}")
-        else:
-            logger.info(f"Respuesta DLR enviada exitosamente para message_id: {message_to_update.message_id} respuesta: {response.text}")
-    except requests.RequestException as e:
-        logger.error(f"Excepción al enviar la respuesta DLR: {e}")
-        raise
+
+    response = requests.get(
+        "http://195.191.165.16:32006/HTTP/api/Vendor/DLRListener"
+        , params=dlr_params
+        , timeout=10
+    )
+    if response.status_code != 200:
+        logger.error(f"Error al enviar la respuesta DLR: {response.status_code} - {response.text}")
+    else:
+        logger.info(f"Respuesta DLR enviada exitosamente para message_id: {message_to_update.message_id}")
 
 
 @app.post(
@@ -327,16 +325,7 @@ def receive_dlr_webhook(
     message_to_update.status = payload.event
 
     # DLR al que envia el sms
-    try:
-        respond_dlr_success(message_to_update, payload.event)
-    except Exception as e:
-        return {
-        "status": "Error",
-        "message": "processing failed during DLR response to api/Vendor/DLRListener",
-        "processed_msgId": payload.msgId,
-        "new_status": previous_status,
-    }
-
+    respond_dlr_success(message_to_update, payload.event)
 
     # Guardar los cambios en la base de datos.
     db.commit()
