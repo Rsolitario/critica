@@ -301,6 +301,7 @@ def respond_dlr_success(message_to_update: SmsIncoming, event: str):
                 logger.info(f"DLR aceptado por el servidor: {json_response}")
             else:
                 logger.error(f"DLR rechazado por el servidor: {status_dlr_response.get(json_response.get("erroCode"))} {json_response.get("errorDescription")}")
+                raise ValueError(f"DLR rechazado por el servidor: {status_dlr_response.get(json_response.get("erroCode"))} {json_response.get("errorDescription")}")
     except requests.RequestException as e:
         logger.error(f"Excepción al enviar la respuesta DLR: {e}")
         raise
